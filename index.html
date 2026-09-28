@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://api.github.com https://gist.githubusercontent.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Debt Payoff Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --surface: #121826;
+    --surface-2: #182032;
+    --border: #243049;
+    --text: #e6ebf5;
+    --muted: #8b97ad;
+    --accent: #3dd68c;
+    --accent-2: #4f8cff;
+    --warn: #f5b841;
+    --danger: #ff5d6c;
+    --radius: 14px;
+    --shadow: 0 8px 24px rgba(0,0,0,.35);
+    --font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+  button, input, select { font: inherit; color: inherit; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 16px; }
+
+  header { position: sticky; top: 0; z-index: 10; background: rgba(11,15,23,.85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+  .topbar { display: flex; align-items: center; gap: 10px; padding: 12px 0; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: .2px; margin-right: auto; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center; color: #06120c; font-weight: 800; }
+  .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .pill.ok { color: var(--accent); border-color: rgba(61,214,140,.35); }
+  .pill.err { color: var(--danger); border-color: rgba(255,93,108,.4); }
+
+  .btn { border: 1px solid var(--border); background: var(--surface-2); padding: 8px 14px; border-radius: 10px; cursor: pointer; transition: .15s; white-space: nowrap; }
+  .btn:hover { border-color: var(--accent-2); }
+  .btn:disabled { opacity: .5; cursor: progress; }
+  .btn.primary { background: var(--accent); color: #06120c; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: var(--danger); }
+  .btn.sm { padding: 4px 10px; font-size: 12px; border-radius: 8px; }
+
+  main { padding: 20px 0 40px; display: grid; gap: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); min-width: 0; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+  .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  .kpi .value { font-size: 26px; font-weight: 700; margin: 6px 0 2px; font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .kpi .sub { font-size: 12px; color: var(--muted); }
+  .kpi.good .value { color: var(--accent); }
+  .kpi.bad .value { color: var(--danger); }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; align-items: end; }
+  .controls > div h2 { margin-bottom: 8px; }
+  .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 8px; cursor: pointer; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--accent-2); color: #fff; font-weight: 600; }
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  .budget { text-align: right; }
+  .budget .v { font-family: var(--mono); font-size: 18px; font-weight: 700; }
+
+  .grid-2 { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); gap: 16px; }
+  .chart-tabs { margin-bottom: 14px; }
+  .chart-box { position: relative; height: 320px; }
+  .cmp { display: grid; gap: 10px; }
+  .cmp-row { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface-2); }
+  .cmp-row.best { border-color: rgba(61,214,140,.5); }
+  .cmp-row .t { display: flex; justify-content: space-between; font-weight: 600; }
+  .cmp-row .d { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(61,214,140,.15); color: var(--accent); }
+
+  form.debt-form { display: grid; grid-template-columns: 2fr 1.3fr 1fr 1fr 1.3fr auto; gap: 10px; align-items: end; margin-bottom: 16px; }
+  form.contrib-form { display: grid; grid-template-columns: 2fr 1.2fr 1.2fr auto; gap: 10px; align-items: end; margin-bottom: 14px; }
+  label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  .inp { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0; }
+  .inp:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; border-color: transparent; }
+  .form-actions { display: flex; gap: 8px; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+  td.r, th.r { text-align: right; }
+  tbody tr:hover { background: rgba(79,140,255,.06); }
+  tbody tr:last-child td { border-bottom: 0; }
+  .order { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 700; }
+  .order.first { background: var(--accent); color: #06120c; border-color: var(--accent); }
+  .warn { color: var(--warn); font-size: 12px; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  .schedule { max-height: 460px; overflow: auto; }
+  details > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary h2 { display: inline; margin: 0; }
+  .summary-tail { display: flex; align-items: center; gap: 10px; }
+  .summary-tail::after { content: "▸ expandir"; color: var(--muted); font-size: 12px; }
+  details[open] .summary-tail::after { content: "▾ recolher"; }
+  details[open] > summary { margin-bottom: 14px; }
+
+  .status { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; display: inline-block; }
+  .status.quitada { color: var(--accent); border-color: rgba(61,214,140,.4); }
+  .status.em_dia { color: var(--accent-2); border-color: rgba(79,140,255,.4); }
+  .status.atrasada { color: var(--danger); border-color: rgba(255,93,108,.4); }
+  .status.aberto { color: var(--muted); }
+
+  .alert { border: 1px solid rgba(245,184,65,.45); background: rgba(245,184,65,.08); color: var(--warn); border-radius: 10px; padding: 10px 14px; }
+  .alert[hidden] { display: none; }
+
+  dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow); }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  .dlg-head { padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+  .dlg-body { padding: 18px; display: grid; gap: 14px; }
+  .dlg-foot { padding: 14px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint code { font-family: var(--mono); color: var(--text); }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(120%); background: var(--surface-2); border: 1px solid var(--border); padding: 10px 16px; border-radius: 10px; box-shadow: var(--shadow); transition: transform .25s; z-index: 50; max-width: calc(100vw - 32px); }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.err { border-color: var(--danger); color: var(--danger); }
+  .toast.ok { border-color: var(--accent); }
+
+  footer { color: var(--muted); font-size: 12px; padding: 0 0 30px; }
+
+  @media (max-width: 1024px) {
+    .grid-2 { grid-template-columns: minmax(0,1fr); }
+    form.debt-form { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    form.debt-form .full { grid-column: 1 / -1; }
+    form.contrib-form { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .controls { gap: 14px; }
+    .budget { text-align: left; }
+  }
+  @media (max-width: 560px) {
+    .kpi .value { font-size: 22px; }
+    form.debt-form { grid-template-columns: minmax(0,1fr); }
+    form.contrib-form { grid-template-columns: minmax(0,1fr); }
+    .topbar .btn { padding: 7px 10px; font-size: 13px; }
+    .chart-box { height: 260px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap topbar">
+    <div class="brand"><div class="logo">$</div>Tesouraria · Amortização de Dívidas</div>
+    <span id="save-status" class="pill">—</span>
+    <button class="btn ghost sm" id="btn-export-csv" type="button">⬇ CSV</button>
+    <button class="btn ghost sm" id="btn-export-json" type="button">⬇ Backup</button>
+    <button class="btn ghost sm" id="btn-import-json" type="button">⬆ Importar</button>
+    <input type="file" id="import-file" accept="application/json" hidden>
+    <button class="btn" id="btn-pull" type="button">⬇ Baixar da Nuvem</button>
+    <button class="btn primary" id="btn-push" type="button">⬆ Salvar na Nuvem (Sync)</button>
+    <button class="btn ghost" id="btn-settings" type="button" aria-label="Configurações">⚙</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="kpis">
+    <div class="panel kpi"><div class="label">Total Devido</div><div class="value" id="kpi-total">—</div><div class="sub" id="kpi-total-sub"></div></div>
+    <div class="panel kpi good"><div class="label">Economia em Juros</div><div class="value" id="kpi-save">—</div><div class="sub" id="kpi-save-sub"></div></div>
+    <div class="panel kpi"><div class="label">Data Debt-Free</div><div class="value" id="kpi-date">—</div><div class="sub" id="kpi-date-sub"></div></div>
+    <div class="panel kpi"><div class="label">Juros Totais (Plano)</div><div class="value" id="kpi-int">—</div><div class="sub" id="kpi-int-sub"></div></div>
+    <div class="panel kpi"><div class="label">Aportes Extras no Plano</div><div class="value" id="kpi-extra">—</div><div class="sub" id="kpi-extra-sub"></div></div>
+  </section>
+
+  <div id="alert" class="alert" hidden></div>
+
+  <section class="panel controls">
+    <div>
+      <h2>Data de Início do Plano</h2>
+      <input class="inp" id="start-date" type="month" aria-label="Data de início do plano">
+      <div class="hint">Referência para todas as datas do cronograma e dos KPIs.</div>
+    </div>
+    <div>
+      <h2>Estratégia</h2>
+      <div class="seg" role="group" aria-label="Estratégia">
+        <button type="button" data-strategy="avalanche">Avalanche · maior taxa</button>
+        <button type="button" data-strategy="snowball">Bola de Neve · menor saldo</button>
+      </div>
+    </div>
+    <div>
+      <h2>Aporte Extra Recorrente</h2>
+      <div class="slider-row">
+        <input type="range" id="extra-range" min="0" max="5000" step="50" aria-label="Aporte extra mensal recorrente">
+        <input type="number" id="extra-input" class="inp num" min="0" step="0.01" style="width:130px" aria-label="Valor do aporte extra recorrente">
+      </div>
+    </div>
+    <div class="budget">
+      <h2>Pagamento Mensal Base</h2>
+      <div class="v" id="budget">—</div>
+      <div class="hint" id="budget-sub"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Aportes Adicionais Agendados (13º, IR, Bônus, Venda de Ativos…)</h2>
+    <form class="contrib-form" id="contrib-form" autocomplete="off" novalidate>
+      <label class="f">Nome<input class="inp" name="name" maxlength="60" required placeholder="Ex.: 13º Salário"></label>
+      <label class="f">Mês/Ano<input class="inp" name="ym" type="month" required></label>
+      <label class="f">Valor (R$)<input class="inp num" name="amount" type="number" min="0.01" step="0.01" required></label>
+      <button class="btn primary" type="submit">+ Adicionar</button>
+    </form>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Mês/Ano</th><th class="r">Valor</th><th class="r">Ações</th></tr></thead>
+        <tbody id="contrib-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="grid-2">
+    <div class="panel">
+      <h2>Evolução Financeira</h2>
+      <div class="seg chart-tabs" role="group" aria-label="Gráfico">
+        <button type="button" data-chart-tab="saldo">Saldo Devedor</button>
+        <button type="button" data-chart-tab="decomp">Juros vs Principal</button>
+        <button type="button" data-chart-tab="freedom">Fluxo Liberado</button>
+      </div>
+      <div class="chart-box"><canvas id="chart" aria-label="Gráfico de evolução financeira" role="img"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Comparativo de Métodos</h2>
+      <div class="cmp" id="cmp"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Carteira de Dívidas</h2>
+    <form class="debt-form" id="debt-form" autocomplete="off" novalidate>
+      <label class="f full">Nome<input class="inp" name="name" maxlength="80" required placeholder="Ex.: Cartão de crédito"></label>
+      <label class="f">Saldo atual (R$)<input class="inp num" name="balance" type="number" min="0.01" step="0.01" required></label>
+      <label class="f">Juros (%)<input class="inp num" name="rate" type="number" min="0" max="1000" step="0.01" required></label>
+      <label class="f">Período<select class="inp" name="rateType"><option value="mensal">ao mês</option><option value="anual">ao ano</option></select></label>
+      <label class="f">Parcela mínima (R$)<input class="inp num" name="min" type="number" min="0" step="0.01" required></label>
+      <div class="form-actions full">
+        <button class="btn primary" type="submit" id="form-submit">+ Adicionar</button>
+        <button class="btn" type="button" id="form-cancel" hidden>Cancelar</button>
+      </div>
+    </form>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Dívida</th><th class="r">Saldo</th><th class="r">Taxa informada</th><th class="r">Efetiva a.m.</th><th class="r">Efetiva a.a.</th><th class="r">Mínimo</th><th class="r">Juros totais</th><th>Quitação</th><th>Status</th><th class="r">Saldo real</th><th class="r">Ações</th>
+        </tr></thead>
+        <tbody id="debt-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <details class="panel" id="schedule-panel">
+    <summary><h2>Cronograma de Amortização</h2><span class="summary-tail"></span></summary>
+    <div class="table-wrap schedule">
+      <table>
+        <thead><tr><th>Mês</th><th>Competência</th><th class="r">Pagamento</th><th class="r">Aporte extra</th><th class="r">Juros</th><th class="r">Amortização</th><th class="r">Saldo devedor</th><th>Quitadas</th></tr></thead>
+        <tbody id="schedule-rows"></tbody>
+      </table>
+    </div>
+  </details>
+</main>
+
+<footer class="wrap">
+  Cálculos 100% determinísticos executados localmente em JavaScript, com aritmética em centavos inteiros (arredondamento a 2 casas em cada lançamento).
+  Conversão de taxas: i<sub>m</sub> = (1 + i<sub>a</sub>)<sup>1/12</sup> − 1. Horizonte máximo de simulação: 600 meses.
+  Pagamentos e saldos reais informados ficam salvos localmente (e na nuvem, se sincronizado) apenas para acompanhamento — não alteram os parâmetros cadastrados da dívida.
+</footer>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <div class="dlg-head">Sincronização via GitHub Gist <button class="btn ghost sm" value="cancel" type="submit" aria-label="Fechar">✕</button></div>
+    <div class="dlg-body">
+      <label class="f">GitHub Personal Access Token (PAT)
+        <input class="inp num" type="password" id="set-token" autocomplete="off" spellcheck="false" placeholder="ghp_… ou github_pat_…">
+      </label>
+      <div class="hint">Permissão necessária: escopo <code>gist</code> (token clássico) ou <em>Gists: Read and write</em> (fine-grained). O token é gravado <strong>somente</strong> no localStorage deste navegador e nunca é enviado ao Gist.</div>
+      <label class="f">ID do Gist Secreto (ou URL completa)
+        <input class="inp num" type="text" id="set-gist" autocomplete="off" spellcheck="false" placeholder="ex.: 8f1c2b…">
+      </label>
+      <div class="hint">Sem Gist ainda? Salve o token e clique em “Criar Gist secreto”. O arquivo usado é <code>debt-dashboard.json</code>.</div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn danger" type="button" id="btn-forget">Esquecer token</button>
+      <button class="btn" type="button" id="btn-create-gist">Criar Gist secreto</button>
+      <button class="btn" type="button" id="btn-test">Testar conexão</button>
+      <button class="btn primary" type="button" id="btn-save-settings">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pay-dialog">
+  <form method="dialog" id="pay-form">
+    <div class="dlg-head"><span id="pay-dialog-title">Pagamentos</span><button class="btn ghost sm" value="cancel" type="submit" aria-label="Fechar">✕</button></div>
+    <div class="dlg-body">
+      <label class="f">Competência (mês/ano)<input class="inp" id="pay-ym" type="month" required></label>
+      <label class="f">Valor pago (R$) <span class="muted">opcional</span><input class="inp num" id="pay-amount" type="number" min="0" step="0.01" placeholder="0,00"></label>
+      <label class="f">Saldo real verificado (R$) <span class="muted">opcional</span><input class="inp num" id="pay-balance" type="number" min="0" step="0.01" placeholder="deixe em branco se não verificado"></label>
+      <div class="hint">Defina o saldo real como <code>0</code> para marcar a dívida como Quitada no status (isso não altera o saldo cadastrado no planejamento).</div>
+      <div class="hint">Histórico de lançamentos:</div>
+      <div class="table-wrap" style="max-height:180px;overflow:auto">
+        <table>
+          <thead><tr><th>Mês</th><th class="r">Pago</th><th class="r">Saldo real</th><th></th></tr></thead>
+          <tbody id="pay-history"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn" type="button" id="pay-cancel">Cancelar</button>
+      <button class="btn primary" type="button" id="pay-save">Salvar lançamento</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+(() => {
+  // ───────────────────────── Constantes ─────────────────────────
+  const LS_DATA = 'debtdash.data.v1';
+  const LS_TOKEN = 'debtdash.gh.token';
+  const LS_GIST = 'debtdash.gh.gist';
+  const GIST_FILE = 'debt-dashboard.json';
+  const API = 'https://api.github.com';
+  const MAX_MONTHS = 600;
+  const MAX_CENTS = 1e13; // R$ 100 bi — limite de sanidade
+
+  const $ = (s) => document.querySelector(s);
+  const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  const money = (c) => BRL.format(c / 100);
+  const pct = (r, d = 2) => (r * 100).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) + '%';
+  const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // ───────────────────────── Storage seguro ─────────────────────────
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
+    del(k) { try { localStorage.removeItem(k); } catch { /* noop */ } }
+  };
+
+  // ───────────────────────── Matemática financeira ─────────────────────────
+  // Converte valor em reais para centavos inteiros, evitando erro de ponto flutuante (ex.: 1.005 → 101).
+  const toCents = (v) => {
+    const n = Number(String(v).trim().replace(',', '.'));
+    return Number.isFinite(n) ? Math.round(+(n * 100).toFixed(4)) : NaN;
+  };
+  // Arredonda um valor em centavos (fracionário) para centavo inteiro — 2 casas decimais em reais.
+  const roundCents = (x) => Math.round(+x.toFixed(6));
+
+  // Taxa efetiva mensal (juros compostos).
+  const monthlyRate = (d) => d.rateType === 'anual' ? Math.pow(1 + d.rate / 100, 1 / 12) - 1 : d.rate / 100;
+  const annualRate = (d) => d.rateType === 'anual' ? d.rate / 100 : Math.pow(1 + d.rate / 100, 12) - 1;
+
+  // ───────────────────────── Datas (calendário real) ─────────────────────────
+  // startYm ("YYYY-MM") define o mês de referência k=1 (primeiro mês de pagamento do plano).
+  const YM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+  const absIndexFromYm = (ym) => { const [y, m] = ym.split('-').map(Number); return y * 12 + (m - 1); };
+  const absStartIndex = () => absIndexFromYm(state.startYm);
+  const calAbsForK = (k) => absStartIndex() + (k - 1); // k=0 → mês anterior ao início (saldo inicial)
+  const ymOfK = (k) => { const abs = calAbsForK(k); const y = Math.floor(abs / 12), m = (abs % 12) + 1; return `${y}-${String(m).padStart(2, '0')}`; };
+  const nowYmStr = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`; };
+  const nowMonthIndex = () => absIndexFromYm(nowYmStr()) - absStartIndex() + 1;
+  const contribMonthIndex = (c) => absIndexFromYm(c.ym) - absStartIndex() + 1;
+
+  const fmtYm = (y, m) => {
+    const d = new Date(y, m - 1, 1);
+    let s = d.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('. de ', '/').replace(' de ', '/').replace('.', '');
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  const monthLabel = (k) => { const abs = calAbsForK(k); return fmtYm(Math.floor(abs / 12), (abs % 12) + 1); };
+  const ymLabel = (ym) => { const [y, m] = ym.split('-').map(Number); return fmtYm(y, m); };
+
+  const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
+  const duration = (n) => { const y = Math.floor(n / 12), mo = n % 12; return [y && plural(y, 'ano', 'anos'), mo && plural(mo, 'mês', 'meses')].filter(Boolean).join(' e ') || '0 meses'; };
+
+  /**
+   * Simulação mês a mês.
+   * rollover=true  → orçamento base (mínimos + aporte extra recorrente) + aportes agendados no mês
+   *                  correspondente; saldo livre e mínimos liberados vão à dívida prioritária.
+   * rollover=false → linha de base: cada dívida paga apenas o próprio mínimo, sem extras.
+   */
+  function simulate(debts, extraBaseCents, contributions, strategy, rollover) {
+    const ds = debts.filter((d) => d.balanceCents > 0).map((d) => ({
+      id: d.id, name: d.name, bal: d.balanceCents, r: monthlyRate(d), min: d.minCents,
+      interest: 0, paid: 0, payoffMonth: null, series: []
+    }));
+    const order = [...ds].sort(strategy === 'avalanche'
+      ? (a, b) => (b.r - a.r) || (a.bal - b.bal) || a.name.localeCompare(b.name)
+      : (a, b) => (a.bal - b.bal) || (b.r - a.r) || a.name.localeCompare(b.name));
+    const minSum = ds.reduce((s, d) => s + d.min, 0);
+    const baseBudget = minSum + (rollover ? extraBaseCents : 0);
+    const startBalance = ds.reduce((s, d) => s + d.bal, 0);
+    const contribByM = new Map();
+    if (rollover) for (const c of contributions) {
+      const m = contribMonthIndex(c);
+      if (m >= 1) contribByM.set(m, (contribByM.get(m) || 0) + c.amountCents);
+    }
+    const months = [];
+    let totalInterest = 0, totalPaid = 0, m = 0;
+    const isOpen = () => ds.some((d) => d.bal > 0);
+
+    while (isOpen() && m < MAX_MONTHS) {
+      m++;
+      let mInt = 0, mPaid = 0;
+      // 1) Capitalização de juros do mês
+      for (const d of ds) {
+        if (d.bal <= 0) continue;
+        const i = roundCents(d.bal * d.r);
+        d.bal += i; d.interest += i; mInt += i;
+      }
+      // 2) Orçamento disponível: base + aporte agendado deste mês
+      const contribHere = contribByM.get(m) || 0;
+      let avail = baseBudget + (rollover ? contribHere : 0);
+      // 3) Pagamentos mínimos
+      for (const d of ds) {
+        if (d.bal <= 0) continue;
+        const p = Math.min(d.min, d.bal);
+        d.bal -= p; d.paid += p; mPaid += p; avail -= p;
+      }
+      // 4) Excedente para a dívida prioritária (cascata)
+      if (rollover) {
+        for (const d of order) {
+          if (avail <= 0) break;
+          if (d.bal <= 0) continue;
+          const p = Math.min(avail, d.bal);
+          d.bal -= p; d.paid += p; mPaid += p; avail -= p;
+        }
+      }
+      const payoffs = [];
+      for (const d of ds) {
+        d.series.push({ m, bal: d.bal });
+        if (d.bal === 0 && d.payoffMonth === null) { d.payoffMonth = m; payoffs.push(d.name); }
+      }
+      totalInterest += mInt; totalPaid += mPaid;
+      months.push({ m, interest: mInt, paid: mPaid, principal: mPaid - mInt, contrib: contribHere, balance: ds.reduce((s, d) => s + d.bal, 0), payoffs });
+    }
+    return { months, totalInterest, totalPaid, n: m, finished: !isOpen(), debts: ds, order: order.map((d) => d.id), baseBudget, startBalance };
+  }
+
+  // ───────────────────────── Estado ─────────────────────────
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+
+  function sanitizeState(raw) {
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.debts)) throw new Error('Formato de dados inválido.');
+    if (raw.debts.length > 200) throw new Error('Número de dívidas excede o limite (200).');
+    const int = (v, max) => { const n = Math.round(Number(v)); if (!Number.isFinite(n) || n < 0 || n > max) throw new Error('Valor numérico inválido.'); return n; };
+    const validYm = (s) => typeof s === 'string' && YM_RE.test(s);
+
+    const debts = raw.debts.map((d) => {
+      if (!d || typeof d !== 'object') throw new Error('Dívida inválida.');
+      const rate = Number(d.rate);
+      if (!Number.isFinite(rate) || rate < 0 || rate > 1000) throw new Error('Taxa inválida.');
+      const log = {};
+      if (d.log && typeof d.log === 'object') {
+        for (const [ym, e] of Object.entries(d.log)) {
+          if (!validYm(ym) || !e || typeof e !== 'object') continue;
+          const entry = {};
+          if (e.paidCents != null) { const p = Math.round(Number(e.paidCents)); if (Number.isFinite(p) && p >= 0 && p <= MAX_CENTS) entry.paidCents = p; }
+          if (e.balanceCents != null) { const b = Math.round(Number(e.balanceCents)); if (Number.isFinite(b) && b >= 0 && b <= MAX_CENTS) entry.balanceCents = b; }
+          if (typeof e.at === 'string' && !isNaN(Date.parse(e.at))) entry.at = e.at;
+          if (Object.keys(entry).length) log[ym] = entry;
+        }
+      }
+      return {
+        id: typeof d.id === 'string' && /^[\w-]{1,64}$/.test(d.id) ? d.id : uid(),
+        name: String(d.name ?? 'Sem nome').slice(0, 80).trim() || 'Sem nome',
+        balanceCents: int(d.balanceCents, MAX_CENTS),
+        rate: Math.round(rate * 10000) / 10000,
+        rateType: d.rateType === 'anual' ? 'anual' : 'mensal',
+        minCents: int(d.minCents, MAX_CENTS),
+        log
+      };
+    });
+
+    const contributions = Array.isArray(raw.contributions) ? raw.contributions.map((c) => {
+      if (!c || typeof c !== 'object' || !validYm(c.ym)) return null;
+      let amountCents;
+      try { amountCents = int(c.amountCents, MAX_CENTS); } catch { return null; }
+      if (amountCents <= 0) return null;
+      return {
+        id: typeof c.id === 'string' && /^[\w-]{1,64}$/.test(c.id) ? c.id : uid(),
+        name: String(c.name ?? 'Aporte').slice(0, 60).trim() || 'Aporte',
+        ym: c.ym, amountCents
+      };
+    }).filter(Boolean).slice(0, 500) : [];
+
+    return {
+      version: 2,
+      updatedAt: typeof raw.updatedAt === 'string' && !isNaN(Date.parse(raw.updatedAt)) ? raw.updatedAt : new Date().toISOString(),
+      strategy: raw.strategy === 'snowball' ? 'snowball' : 'avalanche',
+      startYm: validYm(raw.startYm) ? raw.startYm : nowYmStr(),
+      extraBaseCents: int(raw.extraBaseCents ?? raw.extraCents ?? 0, MAX_CENTS),
+      contributions,
+      debts
+    };
+  }
+
+  const seedState = () => ({
+    version: 2, updatedAt: new Date().toISOString(), strategy: 'avalanche',
+    startYm: nowYmStr(), extraBaseCents: 50000,
+    contributions: [
+      { id: uid(), name: '13º Salário', ym: `${new Date().getFullYear()}-12`, amountCents: 300000 }
+    ],
+    debts: [
+      { id: uid(), name: 'Cartão de crédito', balanceCents: 850000, rate: 12.5, rateType: 'mensal', minCents: 120000, log: {} },
+      { id: uid(), name: 'Cheque especial', balanceCents: 320000, rate: 7.9, rateType: 'mensal', minCents: 40000, log: {} },
+      { id: uid(), name: 'Empréstimo pessoal', balanceCents: 1500000, rate: 48, rateType: 'anual', minCents: 75000, log: {} },
+      { id: uid(), name: 'Financiamento veículo', balanceCents: 3800000, rate: 1.49, rateType: 'mensal', minCents: 110000, log: {} }
+    ]
+  });
+
+  function loadLocal() {
+    const raw = store.get(LS_DATA);
+    if (!raw) return null;
+    try { return sanitizeState(JSON.parse(raw)); } catch { return null; }
+  }
+
+  let state = loadLocal() || seedState();
+  let editingId = null;
+  let payDebtId = null;
+  let activeChartTab = 'saldo';
+
+  let saveTimer = null;
+  function persist(bump = true) {
+    if (bump) state.updatedAt = new Date().toISOString();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const ok = store.set(LS_DATA, JSON.stringify(state));
+      setStatus(ok ? `Salvo localmente · ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Falha ao salvar localmente', ok ? 'ok' : 'err');
+    }, 250);
+  }
+
+  // ───────────────────────── UI utilitários ─────────────────────────
+  function setStatus(text, kind = '') { const el = $('#save-status'); el.textContent = text; el.className = 'pill ' + kind; }
+  let toastTimer = null;
+  function toast(msg, kind = '') {
+    const t = $('#toast'); t.textContent = msg; t.className = `toast show ${kind}`;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = 'toast'; }, 3800);
+  }
+  const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  // ───────────────────────── Pagamentos / status real ─────────────────────────
+  function latestVerifiedBalance(d) {
+    const entries = Object.entries(d.log || {}).filter(([, e]) => e.balanceCents != null);
+    if (!entries.length) return null;
+    entries.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    return entries[entries.length - 1][1].balanceCents;
+  }
+  function debtStatus(d) {
+    const verified = latestVerifiedBalance(d);
+    if (verified === 0) return 'quitada';
+    if (d.balanceCents <= 0) return 'quitada';
+    const todaysM = nowMonthIndex();
+    if (todaysM < 1) return 'aberto';
+    const entries = d.log || {};
+    let missing = false, hasCurrent = false;
+    for (let k = 1; k <= todaysM; k++) {
+      const paid = !!(entries[ymOfK(k)] && entries[ymOfK(k)].paidCents > 0);
+      if (k === todaysM) hasCurrent = paid;
+      if (!paid) missing = true;
+    }
+    if (hasCurrent) return 'em_dia';
+    return missing ? 'atrasada' : 'aberto';
+  }
+  const STATUS_LABEL = { quitada: 'Quitada', em_dia: 'Em Dia', atrasada: 'Atrasada', aberto: 'Em Aberto' };
+
+  function realizedSeries(n) {
+    const points = [];
+    for (const d of state.debts) {
+      for (const [ym, e] of Object.entries(d.log || {})) {
+        if (e.balanceCents == null) continue;
+        points.push({ k: absIndexFromYm(ym) - absStartIndex() + 1, id: d.id, bal: e.balanceCents });
+      }
+    }
+    if (!points.length) return null;
+    points.sort((a, b) => a.k - b.k);
+    const last = new Map();
+    for (const d of state.debts) last.set(d.id, d.balanceCents);
+    const byK = new Map();
+    for (const p of points) { if (!byK.has(p.k)) byK.set(p.k, []); byK.get(p.k).push(p); }
+    const maxK = Math.max(...points.map((p) => p.k));
+    const result = new Array(n + 1).fill(null);
+    for (let k = 0; k <= n; k++) {
+      if (byK.has(k)) for (const p of byK.get(k)) last.set(p.id, p.bal);
+      if (k <= maxK) result[k] = [...last.values()].reduce((s, v) => s + v, 0);
+    }
+    return result;
+  }
+
+  // ───────────────────────── Render ─────────────────────────
+  let chart = null;
+
+  function render() {
+    const plan = simulate(state.debts, state.extraBaseCents, state.contributions, state.strategy, true);
+    const base = simulate(state.debts, 0, [], state.strategy, false);
+    const other = simulate(state.debts, state.extraBaseCents, state.contributions, state.strategy === 'avalanche' ? 'snowball' : 'avalanche', true);
+    renderControls(plan);
+    renderKPIs(plan, base);
+    renderAlert(plan);
+    renderContribTable();
+    renderDebts(plan);
+    renderComparison(plan, other, base);
+    renderCharts(plan, base);
+    renderSchedule(plan);
+  }
+
+  function renderControls(plan) {
+    document.querySelectorAll('[data-strategy]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.strategy === state.strategy)));
+    if (document.activeElement !== $('#start-date')) $('#start-date').value = state.startYm;
+    const range = $('#extra-range');
+    const minSum = state.debts.reduce((s, d) => s + d.minCents, 0);
+    const dynMax = Math.max(5000, Math.ceil((minSum * 2) / 100 / 500) * 500, Math.ceil(state.extraBaseCents / 100 / 500) * 500);
+    range.max = dynMax;
+    range.value = state.extraBaseCents / 100;
+    if (document.activeElement !== $('#extra-input')) $('#extra-input').value = (state.extraBaseCents / 100).toFixed(2);
+    $('#budget').textContent = money(plan.baseBudget);
+    const inHorizon = state.contributions.filter((c) => { const m = contribMonthIndex(c); return m >= 1 && m <= plan.n; });
+    const contribSum = inHorizon.reduce((s, c) => s + c.amountCents, 0);
+    $('#budget-sub').textContent = `Mínimos ${money(minSum)} + extra recorrente ${money(state.extraBaseCents)}`
+      + (inHorizon.length ? ` · +${plural(inHorizon.length, 'aporte agendado', 'aportes agendados')} totalizando ${money(contribSum)}` : '');
+  }
+
+  function renderKPIs(plan, base) {
+    const total = state.debts.reduce((s, d) => s + d.balanceCents, 0);
+    $('#kpi-total').textContent = money(total);
+    $('#kpi-total-sub').textContent = plural(state.debts.length, 'dívida ativa', 'dívidas ativas');
+
+    if (!state.debts.length) {
+      ['#kpi-save', '#kpi-date', '#kpi-int', '#kpi-extra'].forEach((s) => { $(s).textContent = '—'; });
+      ['#kpi-save-sub', '#kpi-date-sub', '#kpi-int-sub', '#kpi-extra-sub'].forEach((s) => { $(s).textContent = ''; });
+      return;
+    }
+
+    const saving = base.totalInterest - plan.totalInterest;
+    $('#kpi-save').textContent = (base.finished ? '' : '≥ ') + money(Math.max(0, saving));
+    $('#kpi-save-sub').textContent = base.finished
+      ? `vs. só mínimos · ${plan.finished ? duration(Math.max(0, base.n - plan.n)) + ' mais cedo' : ''}`
+      : 'Só com mínimos, a dívida não é quitada em 50 anos';
+
+    if (plan.finished) {
+      $('#kpi-date').textContent = monthLabel(plan.n);
+      $('#kpi-date-sub').textContent = `${duration(plan.n)} (${plural(plan.n, 'parcela', 'parcelas')})`;
+      $('#kpi-date').parentElement.classList.remove('bad');
+    } else {
+      $('#kpi-date').textContent = 'Não quita';
+      $('#kpi-date-sub').textContent = 'Pagamento não cobre os juros em 600 meses';
+      $('#kpi-date').parentElement.classList.add('bad');
+    }
+    $('#kpi-int').textContent = money(plan.totalInterest);
+    $('#kpi-int-sub').textContent = `Total desembolsado ${money(plan.totalPaid)}`;
+
+    const inHorizon = state.contributions.filter((c) => { const m = contribMonthIndex(c); return m >= 1 && m <= plan.n; });
+    const contribSum = inHorizon.reduce((s, c) => s + c.amountCents, 0);
+    const totalExtra = state.extraBaseCents * plan.n + contribSum;
+    $('#kpi-extra').textContent = money(totalExtra);
+    $('#kpi-extra-sub').textContent = `${money(state.extraBaseCents)}/mês recorrente + ${money(contribSum)} agendados`;
+  }
+
+  function renderAlert(plan) {
+    const issues = state.debts.filter((d) => d.balanceCents > 0 && d.minCents <= roundCents(d.balanceCents * monthlyRate(d)));
+    const el = $('#alert');
+    const msgs = [];
+    if (issues.length) msgs.push(`⚠ Parcela mínima não cobre os juros do 1º mês em: ${issues.map((d) => d.name).join(', ')}. Sem aporte extra, o saldo cresce (amortização negativa).`);
+    if (!plan.finished && state.debts.length) msgs.push('⚠ Com o orçamento atual o plano não quita as dívidas no horizonte de 600 meses. Aumente o aporte extra.');
+    el.textContent = msgs.join(' ');
+    el.hidden = !msgs.length;
+  }
+
+  function renderContribTable() {
+    const tbody = $('#contrib-rows');
+    if (!state.contributions.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Nenhum aporte agendado.</td></tr>'; return; }
+    const sorted = [...state.contributions].sort((a, b) => (a.ym < b.ym ? -1 : 1));
+    tbody.innerHTML = sorted.map((c) => `<tr>
+      <td>${esc(c.name)}</td><td>${esc(ymLabel(c.ym))}</td><td class="r num">${money(c.amountCents)}</td>
+      <td class="r"><button class="btn sm danger" data-del-contrib="${esc(c.id)}" type="button">Excluir</button></td>
+    </tr>`).join('');
+  }
+
+  function renderDebts(plan) {
+    const tbody = $('#debt-rows');
+    if (!state.debts.length) { tbody.innerHTML = '<tr><td colspan="12" class="empty">Nenhuma dívida cadastrada. Adicione a primeira acima.</td></tr>'; return; }
+    const pos = new Map(plan.order.map((id, i) => [id, i + 1]));
+    const simById = new Map(plan.debts.map((d) => [d.id, d]));
+    const rows = [...state.debts].sort((a, b) => (pos.get(a.id) ?? 999) - (pos.get(b.id) ?? 999)).map((d) => {
+      const s = simById.get(d.id);
+      const p = pos.get(d.id);
+      const firstInt = roundCents(d.balanceCents * monthlyRate(d));
+      const neg = d.balanceCents > 0 && d.minCents <= firstInt;
+      const payoff = !s ? '<span class="muted">Quitada</span>'
+        : s.payoffMonth ? `${esc(monthLabel(s.payoffMonth))} <span class="muted">(${s.payoffMonth}m)</span>` : '<span class="warn">Não quita</span>';
+      const st = debtStatus(d);
+      const verified = latestVerifiedBalance(d);
+      return `<tr>
+        <td>${p ? `<span class="order ${p === 1 ? 'first' : ''}">${p}</span>` : ''}</td>
+        <td>${esc(d.name)}${neg ? '<div class="warn">mínimo ≤ juros do mês</div>' : ''}</td>
+        <td class="r num">${money(d.balanceCents)}</td>
+        <td class="r num">${pct(d.rate / 100)} ${d.rateType === 'anual' ? 'a.a.' : 'a.m.'}</td>
+        <td class="r num">${pct(monthlyRate(d))}</td>
+        <td class="r num">${pct(annualRate(d))}</td>
+        <td class="r num">${money(d.minCents)}</td>
+        <td class="r num">${s ? money(s.interest) : '—'}</td>
+        <td>${payoff}</td>
+        <td><span class="status ${st}">${STATUS_LABEL[st]}</span></td>
+        <td class="r num">${verified != null ? money(verified) : '—'}</td>
+        <td class="r">
+          <button class="btn sm" data-edit="${esc(d.id)}" type="button">Editar</button>
+          <button class="btn sm" data-pay="${esc(d.id)}" type="button">Pagamentos</button>
+          <button class="btn sm danger" data-del="${esc(d.id)}" type="button">Excluir</button>
+        </td>
+      </tr>`;
+    });
+    tbody.innerHTML = rows.join('');
+  }
+
+  function renderComparison(plan, other, base) {
+    const av = state.strategy === 'avalanche' ? plan : other;
+    const sb = state.strategy === 'snowball' ? plan : other;
+    const best = !av.finished && !sb.finished ? null
+      : (av.finished && (!sb.finished || av.totalInterest <= sb.totalInterest)) ? 'avalanche' : 'snowball';
+    const row = (key, title, r) => `<div class="cmp-row ${best === key ? 'best' : ''}">
+      <div class="t"><span>${title} ${state.strategy === key ? '<span class="tag">ativo</span>' : ''}</span><span class="num">${money(r.totalInterest)}</span></div>
+      <div class="d"><span>${r.finished ? `${plural(r.n, 'mês', 'meses')} · ${monthLabel(r.n)}` : 'Não quita em 600 meses'}</span><span>juros totais</span></div>
+    </div>`;
+    const diff = Math.abs(av.totalInterest - sb.totalInterest);
+    $('#cmp').innerHTML = !state.debts.length ? '<div class="empty">Sem dados</div>'
+      : row('avalanche', 'Avalanche', av) + row('snowball', 'Bola de Neve', sb)
+        + `<div class="cmp-row"><div class="t"><span>Somente mínimos</span><span class="num">${base.finished ? '' : '≥ '}${money(base.totalInterest)}</span></div>
+           <div class="d"><span>${base.finished ? `${plural(base.n, 'mês', 'meses')} · ${monthLabel(base.n)}` : 'Não quita em 600 meses'}</span><span>linha de base</span></div></div>`
+        + (best ? `<div class="hint">Diferença entre métodos: <strong class="num">${money(diff)}</strong> em juros.</div>` : '');
+  }
+
+  function renderCharts(plan, base) {
+    document.querySelectorAll('[data-chart-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.chartTab === activeChartTab)));
+    if (!window.Chart) { $('.chart-box').innerHTML = '<div class="empty">Chart.js não carregou (verifique a conexão).</div>'; return; }
+    const accent = cssVar('--accent'), accent2 = cssVar('--accent-2'), warnC = cssVar('--warn'), dangerC = cssVar('--danger'), muted = cssVar('--muted'), border = cssVar('--border');
+    const yFmt = (v) => BRL.format(v).replace(/,00$/, '');
+    let type, labels, datasets, stacked = false;
+
+    if (activeChartTab === 'decomp') {
+      type = 'bar';
+      labels = plan.months.map((x) => monthLabel(x.m));
+      datasets = [
+        { label: 'Juros', data: plan.months.map((x) => x.interest / 100), backgroundColor: dangerC, stack: 's' },
+        { label: 'Amortização', data: plan.months.map((x) => x.principal / 100), backgroundColor: accent, stack: 's' }
+      ];
+      stacked = true;
+    } else if (activeChartTab === 'freedom') {
+      type = 'line';
+      labels = plan.months.map((x) => monthLabel(x.m));
+      const freed = new Array(plan.months.length).fill(0);
+      for (const d of plan.debts) if (d.payoffMonth) for (let k = d.payoffMonth - 1; k < freed.length; k++) freed[k] += d.min;
+      datasets = [{ label: 'Fluxo mensal liberado (parcelas quitadas)', data: freed.map((v) => v / 100), borderColor: accent2, backgroundColor: 'rgba(79,140,255,.15)', fill: true, stepped: true, pointRadius: 0, borderWidth: 2 }];
+    } else {
+      type = 'line';
+      const n = Math.max(plan.n, base.n);
+      labels = Array.from({ length: n + 1 }, (_, k) => monthLabel(k));
+      const series = (sim) => [sim.startBalance / 100, ...sim.months.map((x) => x.balance / 100)];
+      const realized = realizedSeries(n);
+      datasets = [
+        { label: `Plano (${state.strategy === 'avalanche' ? 'Avalanche' : 'Bola de Neve'})`, data: series(plan), borderColor: accent, backgroundColor: 'rgba(61,214,140,.12)', fill: true, tension: .25, pointRadius: 0, borderWidth: 2 },
+        { label: 'Somente mínimos', data: series(base), borderColor: accent2, borderDash: [6, 4], fill: false, tension: .25, pointRadius: 0, borderWidth: 2 }
+      ];
+      if (realized) datasets.push({ label: 'Realizado (informado)', data: realized.map((v) => v == null ? null : v / 100), borderColor: warnC, borderDash: [2, 2], fill: false, tension: 0, pointRadius: 2, borderWidth: 2, spanGaps: false });
+    }
+
+    if (chart) { chart.destroy(); chart = null; }
+    chart = new Chart($('#chart'), {
+      type, data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: muted, usePointStyle: true, boxWidth: 8 } },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${BRL.format(c.parsed.y ?? 0)}` } }
+        },
+        scales: {
+          x: { ticks: { color: muted, maxTicksLimit: 12, maxRotation: 0 }, grid: { color: border }, stacked },
+          y: { ticks: { color: muted, callback: yFmt }, grid: { color: border }, beginAtZero: true, stacked }
+        }
+      }
+    });
+  }
+
+  function renderSchedule(plan) {
+    const tbody = $('#schedule-rows');
+    if (!plan.months.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">Sem cronograma.</td></tr>'; return; }
+    tbody.innerHTML = plan.months.map((r) => `<tr>
+      <td class="num">${r.m}</td><td>${esc(monthLabel(r.m))}</td>
+      <td class="r num">${money(r.paid)}</td><td class="r num">${r.contrib > 0 ? money(r.contrib) : '—'}</td>
+      <td class="r num">${money(r.interest)}</td>
+      <td class="r num">${money(r.principal)}</td><td class="r num">${money(r.balance)}</td>
+      <td>${r.payoffs.length ? '✅ ' + r.payoffs.map(esc).join(', ') : ''}</td></tr>`).join('');
+  }
+
+  // ───────────────────────── Eventos: controles ─────────────────────────
+  document.querySelectorAll('[data-strategy]').forEach((b) => b.addEventListener('click', () => {
+    state.strategy = b.dataset.strategy; persist(); render();
+  }));
+  document.querySelectorAll('[data-chart-tab]').forEach((b) => b.addEventListener('click', () => {
+    activeChartTab = b.dataset.chartTab; render();
+  }));
+  $('#start-date').addEventListener('change', (e) => {
+    if (!YM_RE.test(e.target.value)) { e.target.value = state.startYm; return; }
+    state.startYm = e.target.value; persist(); render();
+  });
+  $('#extra-range').addEventListener('input', (e) => {
+    state.extraBaseCents = toCents(e.target.value) || 0;
+    $('#extra-input').value = (state.extraBaseCents / 100).toFixed(2);
+    persist(); render();
+  });
+  $('#extra-input').addEventListener('input', (e) => {
+    const c = toCents(e.target.value);
+    if (!Number.isFinite(c) || c < 0 || c > MAX_CENTS) return;
+    state.extraBaseCents = c; persist(); render();
+  });
+  $('#extra-input').addEventListener('blur', (e) => { e.target.value = (state.extraBaseCents / 100).toFixed(2); });
+
+  // ───────────────────────── Eventos: aportes agendados ─────────────────────────
+  $('#contrib-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const name = String(f.get('name') || '').trim().slice(0, 60);
+    const ym = String(f.get('ym') || '');
+    const amountCents = toCents(f.get('amount'));
+    if (!name) return toast('Informe um nome para o aporte.', 'err');
+    if (!YM_RE.test(ym)) return toast('Informe o mês/ano do aporte.', 'err');
+    if (!Number.isFinite(amountCents) || amountCents <= 0 || amountCents > MAX_CENTS) return toast('Valor do aporte inválido.', 'err');
+    if (state.contributions.length >= 500) return toast('Limite de aportes agendados atingido.', 'err');
+    state.contributions.push({ id: uid(), name, ym, amountCents });
+    e.target.reset();
+    persist(); render();
+    toast('Aporte agendado adicionado.', 'ok');
+  });
+  $('#contrib-rows').addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn || !btn.dataset.delContrib) return;
+    state.contributions = state.contributions.filter((c) => c.id !== btn.dataset.delContrib);
+    persist(); render(); toast('Aporte removido.');
+  });
+
+  // ───────────────────────── Eventos: CRUD de dívidas ─────────────────────────
+  const form = $('#debt-form');
+  function resetForm() {
+    form.reset(); editingId = null;
+    $('#form-submit').textContent = '+ Adicionar';
+    $('#form-cancel').hidden = true;
+  }
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const name = String(f.get('name') || '').trim().slice(0, 80);
+    const balanceCents = toCents(f.get('balance'));
+    const rate = Number(String(f.get('rate')).replace(',', '.'));
+    const minCents = toCents(f.get('min'));
+    const rateType = f.get('rateType') === 'anual' ? 'anual' : 'mensal';
+    if (!name) return toast('Informe o nome da dívida.', 'err');
+    if (!Number.isFinite(balanceCents) || balanceCents <= 0 || balanceCents > MAX_CENTS) return toast('Saldo inválido.', 'err');
+    if (!Number.isFinite(rate) || rate < 0 || rate > 1000) return toast('Taxa de juros inválida (0–1000%).', 'err');
+    if (!Number.isFinite(minCents) || minCents < 0 || minCents > MAX_CENTS) return toast('Parcela mínima inválida.', 'err');
+    const debt = { name, balanceCents, rate: Math.round(rate * 10000) / 10000, rateType, minCents };
+    if (editingId) {
+      const i = state.debts.findIndex((d) => d.id === editingId);
+      if (i >= 0) state.debts[i] = { ...state.debts[i], ...debt };
+      toast('Dívida atualizada.', 'ok');
+    } else {
+      if (state.debts.length >= 200) return toast('Limite de 200 dívidas atingido.', 'err');
+      state.debts.push({ id: uid(), ...debt, log: {} });
+      toast('Dívida adicionada.', 'ok');
+    }
+    resetForm(); persist(); render();
+  });
+  $('#form-cancel').addEventListener('click', resetForm);
+  $('#debt-rows').addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    if (btn.dataset.edit) {
+      const d = state.debts.find((x) => x.id === btn.dataset.edit); if (!d) return;
+      editingId = d.id;
+      form.name.value = d.name;
+      form.balance.value = (d.balanceCents / 100).toFixed(2);
+      form.rate.value = d.rate;
+      form.rateType.value = d.rateType;
+      form.min.value = (d.minCents / 100).toFixed(2);
+      $('#form-submit').textContent = 'Salvar alterações';
+      $('#form-cancel').hidden = false;
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      form.name.focus();
+    } else if (btn.dataset.pay) {
+      openPayDialog(btn.dataset.pay);
+    } else if (btn.dataset.del) {
+      const d = state.debts.find((x) => x.id === btn.dataset.del); if (!d) return;
+      if (!confirm(`Excluir "${d.name}"?`)) return;
+      state.debts = state.debts.filter((x) => x.id !== d.id);
+      if (editingId === d.id) resetForm();
+      persist(); render(); toast('Dívida excluída.');
+    }
+  });
+
+  // ───────────────────────── Registro de pagamentos ─────────────────────────
+  const payDlg = $('#pay-dialog');
+  function renderPayHistory(d) {
+    const entries = Object.entries(d.log || {}).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    $('#pay-history').innerHTML = entries.length ? entries.map(([ym, e]) => `<tr>
+      <td>${esc(ymLabel(ym))}</td>
+      <td class="r num">${e.paidCents != null ? money(e.paidCents) : '—'}</td>
+      <td class="r num">${e.balanceCents != null ? money(e.balanceCents) : '—'}</td>
+      <td class="r"><button class="btn sm danger" data-del-log="${esc(ym)}" type="button">✕</button></td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Sem lançamentos.</td></tr>';
+  }
+  function openPayDialog(id) {
+    const d = state.debts.find((x) => x.id === id); if (!d) return;
+    payDebtId = id;
+    $('#pay-dialog-title').textContent = `Pagamentos · ${d.name}`;
+    $('#pay-ym').value = ymOfK(clamp(nowMonthIndex(), 1, 600));
+    $('#pay-amount').value = ''; $('#pay-balance').value = '';
+    renderPayHistory(d);
+    if (typeof payDlg.showModal === 'function') payDlg.showModal(); else payDlg.setAttribute('open', '');
+  }
+  $('#pay-save').addEventListener('click', () => {
+    const d = state.debts.find((x) => x.id === payDebtId); if (!d) return;
+    const ym = $('#pay-ym').value;
+    if (!YM_RE.test(ym)) return toast('Competência inválida.', 'err');
+    const paidRaw = $('#pay-amount').value.trim();
+    const balRaw = $('#pay-balance').value.trim();
+    const paidCents = paidRaw ? toCents(paidRaw) : null;
+    const balanceCents = balRaw ? toCents(balRaw) : null;
+    if (paidRaw && (!Number.isFinite(paidCents) || paidCents < 0)) return toast('Valor pago inválido.', 'err');
+    if (balRaw && (!Number.isFinite(balanceCents) || balanceCents < 0)) return toast('Saldo real inválido.', 'err');
+    if (!d.log) d.log = {};
+    if (paidCents == null && balanceCents == null) delete d.log[ym];
+    else d.log[ym] = { ...(paidCents != null ? { paidCents } : {}), ...(balanceCents != null ? { balanceCents } : {}), at: new Date().toISOString() };
+    persist(); render(); renderPayHistory(d);
+    toast('Lançamento salvo.', 'ok');
+  });
+  $('#pay-history').addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn || !btn.dataset.delLog) return;
+    const d = state.debts.find((x) => x.id === payDebtId); if (!d) return;
+    delete d.log[btn.dataset.delLog];
+    persist(); render(); renderPayHistory(d);
+  });
+  $('#pay-cancel').addEventListener('click', () => payDlg.close());
+
+  // ───────────────────────── Exportação / Backup ─────────────────────────
+  $('#btn-export-csv').addEventListener('click', () => {
+    const plan = simulate(state.debts, state.extraBaseCents, state.contributions, state.strategy, true);
+    if (!plan.months.length) return toast('Sem cronograma para exportar.', 'err');
+    const dec = (c) => (c / 100).toFixed(2).replace('.', ',');
+    const rows = [['Mes', 'Competencia', 'Pagamento', 'AporteExtra', 'Juros', 'Amortizacao', 'Saldo', 'Quitadas']];
+    for (const r of plan.months) rows.push([r.m, monthLabel(r.m), dec(r.paid), r.contrib > 0 ? dec(r.contrib) : '', dec(r.interest), dec(r.principal), dec(r.balance), r.payoffs.join(', ')]);
+    const csv = '﻿' + rows.map((r) => r.map((c) => { const s = String(c); return /[;\n"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(';')).join('\r\n');
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `cronograma-amortizacao-${state.startYm}.csv`);
+  });
+  $('#btn-export-json').addEventListener('click', () => {
+    downloadBlob(new Blob([payload()], { type: 'application/json' }), `debt-dashboard-backup-${state.startYm}.json`);
+    toast('Backup exportado.', 'ok');
+  });
+  $('#btn-import-json').addEventListener('click', () => $('#import-file').click());
+  $('#import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    if (file.size > 2_000_000) return toast('Arquivo grande demais.', 'err');
+    try {
+      const text = await file.text();
+      const parsed = sanitizeState(JSON.parse(text));
+      if (!confirm(`Importar backup? Isso substituirá os dados atuais (${state.debts.length} dívida(s)) pelos do arquivo (${parsed.debts.length} dívida(s)).`)) return;
+      state = parsed; resetForm(); persist(false); render();
+      toast('Backup importado com sucesso.', 'ok');
+    } catch (err) { toast('Falha ao importar: ' + (err.message || String(err)), 'err'); }
+  });
+
+  // ───────────────────────── GitHub Gist Sync ─────────────────────────
+  const getToken = () => store.get(LS_TOKEN) || '';
+  const getGist = () => store.get(LS_GIST) || '';
+  const parseGistId = (v) => { const m = String(v).trim().match(/([0-9a-f]{20,64})\/?$/i); return m ? m[1] : ''; };
+  const validToken = (t) => /^[A-Za-z0-9_]{20,255}$/.test(t);
+
+  async function gh(path, opts = {}) {
+    const token = getToken();
+    if (!token) throw new Error('Configure o Personal Access Token em ⚙ Configurações.');
+    const headers = { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' };
+    if (opts.body) headers['Content-Type'] = 'application/json';
+    let res;
+    try { res = await fetch(API + path, { ...opts, headers, cache: 'no-store', referrerPolicy: 'no-referrer' }); }
+    catch { throw new Error('Falha de rede ao acessar a API do GitHub.'); }
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).message || ''; } catch { /* noop */ }
+      const map = { 401: 'Token inválido ou expirado', 403: 'Acesso negado / limite de requisições', 404: 'Gist não encontrado (verifique ID e permissões do token)' };
+      throw new Error(`${map[res.status] || 'Erro ' + res.status}${detail ? ' — ' + detail : ''}`);
+    }
+    return res.json();
+  }
+
+  const payload = () => JSON.stringify({ app: 'debt-dashboard', ...state }, null, 2);
+
+  async function createGist() {
+    const g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'Debt Dashboard — dados sincronizados', public: false, files: { [GIST_FILE]: { content: payload() } } }) });
+    store.set(LS_GIST, g.id);
+    $('#set-gist').value = g.id;
+    return g.id;
+  }
+
+  async function withBusy(btn, fn) {
+    const prev = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Aguarde…';
+    try { await fn(); } catch (err) { toast(err.message || String(err), 'err'); setStatus('Erro de sincronização', 'err'); }
+    finally { btn.disabled = false; btn.textContent = prev; }
+  }
+
+  $('#btn-push').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+    let id = getGist();
+    if (!id) {
+      if (!getToken()) { openSettings(); throw new Error('Configure o token antes de sincronizar.'); }
+      if (!confirm('Nenhum Gist configurado. Criar um novo Gist SECRETO com os dados?')) return;
+      id = await createGist();
+    } else {
+      await gh(`/gists/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ files: { [GIST_FILE]: { content: payload() } } }) });
+    }
+    setStatus(`Sincronizado · ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, 'ok');
+    toast('Dados salvos na nuvem (Gist secreto).', 'ok');
+  }));
+
+  $('#btn-pull').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+    const id = getGist();
+    if (!id) { openSettings(); throw new Error('Informe o ID do Gist em ⚙ Configurações.'); }
+    const g = await gh(`/gists/${encodeURIComponent(id)}`);
+    const file = g.files && g.files[GIST_FILE];
+    if (!file) throw new Error(`Arquivo "${GIST_FILE}" não existe neste Gist.`);
+    let content = file.content;
+    if (file.truncated) {
+      if (!/^https:\/\/gist\.githubusercontent\.com\//.test(file.raw_url)) throw new Error('URL de conteúdo inesperada.');
+      const r = await fetch(file.raw_url, { cache: 'no-store', referrerPolicy: 'no-referrer' });
+      if (!r.ok) throw new Error('Falha ao baixar conteúdo completo do Gist.');
+      content = await r.text();
+    }
+    if (content.length > 2_000_000) throw new Error('Arquivo remoto grande demais.');
+    let remote;
+    try { remote = sanitizeState(JSON.parse(content)); } catch (err) { throw new Error('JSON remoto inválido: ' + err.message); }
+    const fmtDt = (s) => new Date(s).toLocaleString('pt-BR');
+    const localNewer = Date.parse(state.updatedAt) > Date.parse(remote.updatedAt);
+    const msg = `Substituir dados locais pelos da nuvem?\n\nNuvem: ${remote.debts.length} dívida(s), atualizado em ${fmtDt(remote.updatedAt)}\nLocal: ${state.debts.length} dívida(s), atualizado em ${fmtDt(state.updatedAt)}` + (localNewer ? '\n\n⚠ Os dados LOCAIS são mais recentes.' : '');
+    if (!confirm(msg)) return;
+    state = remote; resetForm(); persist(false); render();
+    setStatus(`Baixado da nuvem · ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, 'ok');
+    toast('Dados carregados da nuvem.', 'ok');
+  }));
+
+  // ───────────────────────── Configurações ─────────────────────────
+  const dlg = $('#settings');
+  function openSettings() {
+    $('#set-token').value = getToken();
+    $('#set-gist').value = getGist();
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+  }
+  function saveSettings() {
+    const t = $('#set-token').value.trim();
+    const gRaw = $('#set-gist').value.trim();
+    if (t && !validToken(t)) { toast('Formato de token inválido.', 'err'); return false; }
+    const g = gRaw ? parseGistId(gRaw) : '';
+    if (gRaw && !g) { toast('ID do Gist inválido.', 'err'); return false; }
+    t ? store.set(LS_TOKEN, t) : store.del(LS_TOKEN);
+    g ? store.set(LS_GIST, g) : store.del(LS_GIST);
+    $('#set-gist').value = g;
+    return true;
+  }
+  $('#btn-settings').addEventListener('click', openSettings);
+  $('#btn-save-settings').addEventListener('click', () => { if (saveSettings()) { dlg.close(); toast('Configurações salvas neste navegador.', 'ok'); } });
+  $('#btn-forget').addEventListener('click', () => {
+    if (!confirm('Remover o token deste navegador?')) return;
+    store.del(LS_TOKEN); $('#set-token').value = ''; toast('Token removido.');
+  });
+  $('#btn-test').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+    if (!saveSettings()) return;
+    const u = await gh('/user');
+    let extra = '';
+    if (getGist()) { const g = await gh(`/gists/${encodeURIComponent(getGist())}`); extra = g.files[GIST_FILE] ? ' · Gist OK' : ` · Gist sem ${GIST_FILE}`; }
+    toast(`Conectado como ${u.login}${extra}`, 'ok');
+  }));
+  $('#btn-create-gist').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+    if (!saveSettings()) return;
+    if (getGist() && !confirm('Já existe um Gist configurado. Criar outro e substituir o ID?')) return;
+    const id = await createGist();
+    toast(`Gist secreto criado: ${id.slice(0, 8)}…`, 'ok');
+  }));
+
+  // Sincroniza entre abas do mesmo navegador
+  window.addEventListener('storage', (e) => {
+    if (e.key !== LS_DATA || !e.newValue) return;
+    try { state = sanitizeState(JSON.parse(e.newValue)); render(); } catch { /* ignora */ }
+  });
+
+  // ───────────────────────── Init ─────────────────────────
+  if (!store.get(LS_DATA)) persist(false); else setStatus('Dados locais carregados', 'ok');
+  render();
+})();
+</script>
+</body>
+</html>
